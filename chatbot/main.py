@@ -1,67 +1,98 @@
-from google.api_core.client_options import ClientOptions
-from google.cloud import discoveryengine_v1 as discoveryengine
 from dotenv import load_dotenv
-import os
+import argparse
+import logging
+
+from utils import get_model_info_from_env
+from retrieve_documents import retrieve_faq_answer
+from call_llm import ask_llm_openai_compatible
+
+# module logger (configured in __main__)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Initialize
-project_id = os.getenv("PROJECT_ID")
-location = os.getenv("REGION")
-data_store_id = os.getenv("DATA_STORE_ID")
+# --- 3. MAIN RAG LOOP EXECUTION ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="RAG chatbot runner: choose model via --model and optionally override query"
+    )
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="Model key name to use (e.g. llama4, mistral_small, gemini_25_flash, deepseek_31)",
+    )
+    parser.add_argument(
+        "--query",
+        required=False,
+        help="User query to run (if omitted a default example is used)",
+    )
+    parser.add_argument(
+        "--log-level",
+        required=False,
+        default="warn",
+        help="Logging level (debug, info, warn, error). Default: warn",
+    )
+    args = parser.parse_args()
 
+    # Configure logging
+    level_name = args.log_level.upper()
+    # Accept 'WARN' as alias for WARNING
+    if level_name == "WARN":
+        level_name = "WARNING"
+    numeric_level = getattr(logging, level_name, None)
+    if not isinstance(numeric_level, int):
+        print(f"Invalid log level '{args.log_level}', defaulting to WARNING")
+        numeric_level = logging.WARNING
+    logging.basicConfig(
+        level=numeric_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    logger.setLevel(numeric_level)
 
-def retrieve_faq_answer(user_query):
-    client_options = ClientOptions(api_endpoint="us-discoveryengine.googleapis.com")
-
-    client = discoveryengine.SearchServiceClient(client_options=client_options)
-    serving_config = client.serving_config_path(
-        project=project_id,
-        location=location,
-        data_store=data_store_id,
-        serving_config="default_config",
+    user_query = (
+        args.query
+        or "Will this game run on a Windows 7 machine, and what problems might I encounter?"
     )
 
-    request = discoveryengine.SearchRequest(
-        serving_config=serving_config,
-        query=user_query,
-        page_size=3,  # Get top 3 most relevant Q&A pairs
-        # Optional: Filter by category if needed
-        # filter="category: \"System Specs\""
+    # Resolve model id and per-model location from env
+    model_name, model_location_for_model = get_model_info_from_env(args.model)
+    if not model_name:
+        logger.error(
+            "No model id found for model key '%s'. Ensure env var %s_MODEL_ID is set.",
+            args.model,
+            args.model.upper().replace("-", "_").replace(".", "_"),
+        )
+        exit(2)
+
+    # Log configuration details at DEBUG
+
+    logger.debug("Selected model key: %s", args.model)
+    logger.debug("Resolved model name: %s", model_name)
+    logger.debug("Resolved model location: %s", model_location_for_model)
+
+    # 1. RETRIEVE CONTEXT
+    context = retrieve_faq_answer(user_query)
+
+    # Create the RAG prompt (the same for all models)
+    rag_prompt = f"""
+    You are a technical support bot for video games. Use only the provided FAQ Context to answer the user's question. 
+    If the context does not contain the answer, state that you cannot find the information. Be concise and helpful.
+
+    --- FAQ Context ---
+    {context}
+    -------------------
+
+    User Question: {user_query}
+    """
+
+    logger.info("Retrieval complete; sending prompt to model")
+    logger.debug("Retrieved context: %s", context)
+    logger.debug("RAG prompt length: %d characters", len(rag_prompt))
+
+    # 2. GENERATE ANSWER using the selected model
+    response = ask_llm_openai_compatible(
+        model_name, rag_prompt, model_location_for_model
     )
-
-    response = client.search(request)
-
-    retrieved_knowledge = []
-
-    for result in response.results:
-        faq_entry = result.document.struct_data
-        question = faq_entry.get("question_text")
-        answers = faq_entry.get("answers")
-
-        answer_texts = []
-        for answer in answers:
-            answer_text = answer.get("answer_text")
-            answer_texts.append("A: " + answer_text)
-        combined_answer = "\n".join(answer_texts)
-        formatted_knowledge = f"Q: {question}\n{combined_answer}"
-        retrieved_knowledge.append(formatted_knowledge)
-
-    return "\n\n".join(retrieved_knowledge)
-
-
-user_query = "What windows version do I need?"
-
-context = retrieve_faq_answer(user_query)
-
-print(f"--- Retrieved Context ---\n{context}\n")
-
-prompt = f"""
-You are a support bot. Use the following FAQ entry to answer the user.
-FAQ Context:
-{context}
-
-User Question: {user_query}
-"""
-
-print(f"--- Generated Prompt for LLMs ---\n{prompt}\n")
+    logger.info("Generation complete for model %s", response.get("model"))
+    logger.debug("Model response: %s", response.get("answer"))
+    print(f"\n--- GENERATION: {response['model']} ---")
+    print(f"Answer: {response['answer']}")
