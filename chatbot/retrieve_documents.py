@@ -20,7 +20,7 @@ DATA_STORE_ID = os.getenv("DATA_STORE_ID")
 # --- 1. RETRIEVAL FUNCTION (Confirmed Working) ---
 def retrieve_faq_answer(user_query: str) -> str:
     # Set the correct US multi-region endpoint for Discovery Engine
-    client_options = ClientOptions(api_endpoint="us-discoveryengine.googleapis.com")
+    client_options = ClientOptions(api_endpoint=f"{SEARCH_LOCATION}-discoveryengine.googleapis.com")
     client = discoveryengine.SearchServiceClient(client_options=client_options)
 
     serving_config = client.serving_config_path(
