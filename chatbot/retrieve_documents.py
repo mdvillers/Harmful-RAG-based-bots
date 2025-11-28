@@ -13,7 +13,7 @@ load_dotenv()
 # --- CONFIGURATION ---
 PROJECT_ID = os.getenv("PROJECT_ID")
 MODEL_LOCATION = os.getenv("MODEL_LOCATION")
-SEARCH_LOCATION = os.getenv("REGION")
+SEARCH_LOCATION = os.getenv("SEARCH_REGION")
 DATA_STORE_ID = os.getenv("DATA_STORE_ID")
 
 
