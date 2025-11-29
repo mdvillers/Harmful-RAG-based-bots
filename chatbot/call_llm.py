@@ -14,6 +14,10 @@ load_dotenv()
 
 PROJECT_ID = os.getenv("PROJECT_ID")
 
+SYSTEM_PROMPT = (
+    "You are a technical support bot. Use only the context provided. Be concise."
+)
+
 
 # --- 2. GENERATION FUNCTION ---
 def ask_llm_openai_compatible(
@@ -59,7 +63,7 @@ def ask_llm_openai_compatible(
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a technical support bot. Use only the context provided. Be concise.",
+                    "content": SYSTEM_PROMPT,
                 },
                 {"role": "user", "content": prompt},
             ],

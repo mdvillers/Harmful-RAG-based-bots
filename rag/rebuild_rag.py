@@ -1,3 +1,12 @@
+"""Rebuild a RAG (retrieval-augmented generation) dataset in Vertex AI Search.
+
+This script uploads a local JSONL file to GCS, purges the specified
+Discovery Engine / Vertex AI Search data store, and imports the new
+JSONL so the index is rebuilt. Required env vars: PROJECT_ID,
+SEARCH_REGION, DATA_STORE_ID. Provide `--source-file` and optionally
+`--bucket` when running.
+"""
+
 import argparse
 import logging
 import os

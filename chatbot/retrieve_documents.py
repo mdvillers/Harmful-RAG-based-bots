@@ -36,7 +36,7 @@ def retrieve_faq_answer(user_query: str) -> str:
     request = discoveryengine.SearchRequest(
         serving_config=serving_config,
         query=user_query,
-        page_size=3,
+        page_size=1,
     )
 
     response = client.search(request)
