@@ -1,15 +1,10 @@
 import os
-import json
 from dotenv import load_dotenv
 import argparse
 import logging
-import random
 import datetime
 from logging.handlers import RotatingFileHandler
-
-from utils import get_access_token, get_model_info_from_env
-from retrieve_documents import retrieve_faq_answer
-from call_llm import ask_llm_openai_compatible
+from experiment import start_experiment
 
 # module logger (configured in __main__)
 logger = logging.getLogger(__name__)
@@ -40,99 +35,7 @@ PROMPT_FOR_MODEL = {
 }
 
 
-def start_experiment(
-    prompt_dataset_file: str,
-    final_prompt: str,
-    model: str,
-    output_file: str,
-    use_system_prompt: bool = True,
-    num_queries: int = -1,
-):
-    """Placeholder for any experiment initialization logic."""
-    logger.info("Experiment started.")
 
-    # Resolve model id and per-model location from env
-    model_name, model_location_for_model = get_model_info_from_env(model)
-    if not model_name:
-        logger.error(
-            "No model id found for model key '%s'. Ensure env var %s_MODEL_ID is set.",
-            model,
-            model.upper().replace("-", "_").replace(".", "_"),
-        )
-        exit(2)
-
-    # Log configuration details at DEBUG
-
-    logger.debug("Selected model key: %s", model)
-    logger.debug("Resolved model name: %s", model_name)
-    logger.debug("Resolved model location: %s", model_location_for_model)
-
-    # Get access token once
-    logger.info("Fetching access token via gcloud...")
-    access_token = get_access_token()
-    logger.info("Access token retrieved.")
-
-    # Read user queries from the prompt dataset jsonl file (one JSON object per line)
-    with open(prompt_dataset_file, "r", encoding="utf-8") as f:
-        lines = [l for l in (ln.strip() for ln in f) if l]
-
-    total_lines = len(lines)
-    logger.info("Prompt dataset contains %d entries", total_lines)
-
-    if num_queries == -1:
-        # process all serially in file order
-        selected_lines = lines
-        logger.info("Processing all entries serially (%d)", len(selected_lines))
-    elif num_queries == 0:
-        logger.info("--num-queries set to 0, nothing to process.")
-        return
-    else:
-        # randomly pick num_queries unique lines
-        k = min(num_queries, total_lines)
-        selected_lines = random.sample(lines, k)
-        logger.info("Processing %d randomly selected entries out of %d", k, total_lines)
-
-    with open(output_file, "w", encoding="utf-8") as out_f:
-        for line in selected_lines:
-            obj = None
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                logger.warning("Skipping invalid JSON line in prompt dataset")
-                continue
-            question_text = obj.get("question_text")
-
-            user_query = question_text
-
-            logger.info("Processing user query: %s", user_query)
-
-            logger.info("Starting RAG retrieval for user query")
-
-            # 1. RETRIEVE CONTEXT
-            context = retrieve_faq_answer(user_query)
-
-            # Create the final RAG prompt
-            logger.info("Retrieval complete; sending prompt to model")
-            logger.debug("Retrieved context: %s", context)
-
-            rag_prompt = final_prompt.format(context=context, user_query=user_query)
-            logger.debug("RAG prompt length: %d characters", len(rag_prompt))
-
-            # 2. GENERATE ANSWER using the selected model
-            logger.info("Sending prompt to model %s", model_name)
-            response = ask_llm_openai_compatible(
-                model_name,
-                rag_prompt,
-                model_location_for_model,
-                access_token=access_token,
-                use_system_prompt=use_system_prompt,
-            )
-            logger.info("Generation complete for model %s", response.get("model"))
-            logger.debug("Model response: %s", response.get("answer"))
-
-            # save response in the jsonl again
-            obj["model_response"] = response.get("answer")
-            out_f.write(json.dumps(obj) + "\n")
 
 
 # --- 3. MAIN RAG LOOP EXECUTION ---
@@ -141,9 +44,14 @@ def parse_args():
         description="RAG chatbot runner: choose model via --model and optionally override query"
     )
     parser.add_argument(
-        "--model",
+        "--target-model",
         required=True,
-        help="Model key name to use (e.g. llama4, mistral_small, gemini_25_flash, deepseek_31)",
+        help="Target model key name to use for generation (e.g. llama4, mistral_small)",
+    )
+    parser.add_argument(
+        "--verifier-model",
+        required=True,
+        help="Verifier model key name to use for classifying responses (e.g. verifier_small)",
     )
     parser.add_argument(
         "--log-level",
@@ -256,7 +164,8 @@ def main():
     start_experiment(
         prompt_dataset_file=args.prompt_dataset_file,
         final_prompt=final_prompt,
-        model=args.model,
+        target_model=args.target_model,
+        verifier_model=args.verifier_model,
         output_file=args.output_file,
         use_system_prompt=use_system_prompt,
         num_queries=args.num_queries,
