@@ -1,7 +1,6 @@
 import os
 from typing import Dict
 from openai import OpenAI
-from utils import get_access_token
 
 import logging
 
@@ -21,7 +20,7 @@ SYSTEM_PROMPT = (
 
 # --- 2. GENERATION FUNCTION ---
 def ask_llm_openai_compatible(
-    model_name: str, prompt: str, location: str
+    model_name: str, prompt: str, location: str, access_token: str, use_system_prompt: bool = True
 ) -> Dict[str, str]:
     """Uses the OpenAI client to hit the specific MaaS gateway endpoint (for DeepSeek, etc.)."""
     # Check if the model is Gemini and requires non-thinking mode
@@ -29,11 +28,6 @@ def ask_llm_openai_compatible(
     is_gemini_flash = "gemini" in model_name.lower() and "flash" in model_name.lower()
     if is_gemini_flash:
         logger.info("Using Gemini Flash model; applying non-thinking mode settings.")
-
-    # 1. Get the Bearer Token
-    access_token = get_access_token()
-    if not access_token:
-        raise Exception("Authentication failure for OpenAI-compatible client.")
 
     # 2. Configure the Base URL to the regional OpenAPI gateway
     # This URL mirrors the successful curl command structure
@@ -52,21 +46,23 @@ def ask_llm_openai_compatible(
         extra_config = {}
         if is_gemini_flash:
             # Setting thinkingBudget: 0 disables the complex reasoning for fast mode
-            extra_config["extra_body"] = {"google":{"thinking_config": {"thinking_budget": 0}}}
+            extra_config["extra_body"] = {
+                "google": {"thinking_config": {"thinking_budget": 0}}
+            }
             logger.info(
                 "-> Activating NON-THINKING FAST MODE (thinkingBudget: 0) for Gemini Flash."
             )
 
         # 4. Execute the call
+
+        messages = []
+        if use_system_prompt:
+            messages.append({"role": "system", "content": SYSTEM_PROMPT})
+        messages.append({"role": "user", "content": prompt})
+
         response = client.chat.completions.create(
             model=model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-                {"role": "user", "content": prompt},
-            ],
+            messages=messages,
             temperature=0.1,
             max_tokens=1024,
             # Pass the custom configuration through extra_body
@@ -84,3 +80,4 @@ def ask_llm_openai_compatible(
             "model": model_name,
             "answer": f"ERROR: Failed to generate content via OpenAI gateway. Details: {e}",
         }
+    

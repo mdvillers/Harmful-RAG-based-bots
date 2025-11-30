@@ -4,6 +4,37 @@ from google.api_core.client_options import ClientOptions
 from google.cloud import discoveryengine_v1 as discoveryengine
 import logging
 
+"""Retrieval helpers for RAG experiments.
+
+This module provides a small wrapper around Google Discovery Engine search
+used by the experimental RAG pipeline. The main exported function,
+``retrieve_faq_answer(user_query: str) -> str``, performs a search using the
+configured Discovery Engine data store and returns human-readable context
+formatted as question/answer text that can be concatenated with a prompt
+and passed to an LLM.
+
+Key behavior and assumptions:
+- Reads configuration from environment variables: ``PROJECT_ID``,
+    ``SEARCH_REGION`` (used to build the endpoint), and ``DATA_STORE_ID``.
+- Builds a ``SearchServiceClient`` with the regional endpoint and issues a
+    ``SearchRequest`` (currently using ``page_size=1`` and ``serving_config="default_config"``).
+- Collects the retrieved document's ``question_text`` and its ``answers``
+    (each expected to contain ``answer_text``), formats them as plain text
+    (``Q: ...`` and ``A: ...`` lines) and returns the combined string.
+
+Usage notes for experiments:
+- The returned string is intended to be prepended or inserted into an LLM
+    prompt as grounding/context for RAG evaluation runs.
+- If you need more context, increase ``page_size`` or change the
+    ``serving_config`` name to match a different Discovery Engine config.
+- The function logs debug information about the search configuration; set
+    the process log level to ``DEBUG`` to see internal values during runs.
+
+This file is used by the higher-level experiment runner (e.g. ``chatbot/main.py``)
+to retrieve evidence for queries when running model evaluation or adversarial
+prompting experiments.
+"""
+
 # module logger (configured in __main__)
 logger = logging.getLogger(__name__)
 
