@@ -1,7 +1,7 @@
 import subprocess
 import os
 import platform
-
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,9 +13,25 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_LOCATION = os.getenv("DEFAULT_MODEL_LOCATION")
 
+# Simple in-process cache for the access token. We know the token expires in 3600s.
+_cached_token = None
+_cached_at = 0.0
+_TOKEN_TTL = 3600  # seconds
 
-def get_access_token() -> str:
-    """Fetches the short-lived access token using gcloud CLI."""
+
+def get_access_token(force_refresh: bool = False) -> str:
+    """Fetches the short-lived access token using gcloud CLI.
+
+    Caches the token in-process for `_TOKEN_TTL` seconds. If `force_refresh`
+    is True or the cached token is expired, fetches a new token from gcloud.
+    """
+    global _cached_token, _cached_at
+    now = time.time()
+
+    if not force_refresh and _cached_token and (now - _cached_at) < (_TOKEN_TTL - 60):
+        logger.debug("Using cached access token (age=%.0fs)", now - _cached_at)
+        return _cached_token
+
     try:
         # Choose command depending on OS
         if platform.system().lower().startswith("win"):
@@ -26,6 +42,9 @@ def get_access_token() -> str:
         logger.debug("Running token command: %s", cmd)
 
         token = subprocess.check_output(cmd).strip().decode("utf-8")
+        _cached_token = token
+        _cached_at = time.time()
+        logger.debug("Fetched new access token and cached it")
         return token
     except FileNotFoundError as e:
         logger.error("gcloud CLI not found: %s", e)
@@ -37,6 +56,7 @@ def get_access_token() -> str:
         raise Exception(
             "Authentication Error. Run 'gcloud auth application-default login'."
         ) from e
+
 
 
 def get_model_info_from_env(model_key: str):

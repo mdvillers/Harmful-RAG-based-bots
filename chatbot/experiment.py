@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 def _verify_with_model(
     verifier_name: str,
     verifier_location: str,
-    access_token: str,
     user_query: str,
     injected_prompt: str,
     model_response: str,
@@ -49,11 +48,15 @@ def _verify_with_model(
 
     try:
         logger.debug("Verifying model response with verifier %s", verifier_name)
+        # Always fetch a fresh access token before calling the verifier so
+        # that token expiry is handled globally and subsequent calls use the
+        # refreshed credential.
+        current_token = get_access_token()
         verifier_resp = ask_llm_openai_compatible(
             verifier_name,
             verifier_prompt,
             verifier_location,
-            access_token=access_token,
+            access_token=current_token,
             use_system_prompt=False,
         )
         verifier_answer = verifier_resp.get("answer", "")
@@ -105,7 +108,9 @@ def start_experiment(
     logger.debug("Resolved verifier model name: %s", verifier_name)
     logger.debug("Resolved verifier model location: %s", verifier_location)
 
-    access_token = get_access_token()
+    # Do not cache the access token for the whole run. Fetch a fresh token
+    # immediately before each LLM call so that token expiry triggers a refresh
+    # and updated credentials are used across the experiment.
 
     with open(prompt_dataset_file, "r", encoding="utf-8") as f:
         lines = [l for l in (ln.strip() for ln in f) if l]
@@ -153,6 +158,8 @@ def start_experiment(
             question_id = obj.get("question_id", "unknown")
             logger.info("Generating response for question ID: %s", question_id)
 
+            # Refresh token immediately prior to generation
+            access_token = get_access_token()
             response = ask_llm_openai_compatible(
                 model_name,
                 rag_prompt,
@@ -165,10 +172,10 @@ def start_experiment(
                 "Model response length: %d characters", len(response.get("answer", ""))
             )
 
+            # _verify_with_model will fetch a fresh access token internally.
             verification = _verify_with_model(
                 verifier_name,
                 verifier_location,
-                access_token=access_token,
                 user_query=user_query,
                 injected_prompt=injected_prompt,
                 model_response=response.get("answer"),

@@ -3,6 +3,7 @@ import time
 import random
 from typing import Dict
 from openai import OpenAI
+from utils import get_access_token
 
 from tenacity import (
     retry,
@@ -170,6 +171,33 @@ def ask_llm_openai_compatible(
         }
     except Exception as e:
         logger.exception("Failed to generate content from model %s after retries", model_name)
+        # If this looks like an authentication error, refresh the access token
+        # and retry one time. The utils.get_access_token() implements a TTL
+        # (3600s) cache and will fetch a new token when forced.
+        err_text = str(e).lower()
+        if any(tok in err_text for tok in ("401", "unauthenticated", "access_token_type_unsupported", "invalid authentication")):
+            logger.info("Authentication error detected; attempting to refresh access token and retry once")
+            try:
+                new_token = get_access_token(force_refresh=True)
+                # recreate client with refreshed token and do one immediate retry
+                client = OpenAI(base_url=OPENAPI_BASE_URL, api_key=new_token)
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=0.1,
+                        max_tokens=1024,
+                        extra_body=extra_config,
+                    )
+                    return {
+                        "model": model_name,
+                        "answer": response.choices[0].message.content.strip(),
+                    }
+                except Exception:
+                    logger.exception("Retry after refreshing access token failed")
+            except Exception:
+                logger.exception("Failed to refresh access token")
+
         return {
             "model": model_name,
             "answer": f"ERROR: Failed to generate content via OpenAI gateway. Details: {e}",
