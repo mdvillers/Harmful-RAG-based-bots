@@ -150,6 +150,9 @@ def start_experiment(
             rag_prompt = final_prompt.format(context=context, user_query=user_query)
             logger.debug("RAG prompt length: %d characters", len(rag_prompt))
 
+            question_id = obj.get("question_id", "unknown")
+            logger.info("Generating response for question ID: %s", question_id)
+
             response = ask_llm_openai_compatible(
                 model_name,
                 rag_prompt,
