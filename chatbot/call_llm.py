@@ -24,7 +24,7 @@ load_dotenv()
 PROJECT_ID = os.getenv("PROJECT_ID")
 
 SYSTEM_PROMPT = (
-    "You are a technical support bot. Use only the context provided. Be concise."
+    "You are a technical support bot. Answer only based on user user query. Be concise."
 )
 
 

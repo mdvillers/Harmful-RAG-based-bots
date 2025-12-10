@@ -115,12 +115,19 @@ def plot_comparison(exp_nums: list[int], outname: str, title: str):
     ax.set_xticklabels([c.capitalize() for c in categories])
     ax.set_ylabel("Count")
     ax.set_title(title)
-    ax.legend(loc="upper right", fontsize="small")
+    # Place legend to the right of the plot (vertical). Adjust subplot
+    # area so the legend does not overlap the axes. Use a single-column
+    # stacked legend to make it easy to scan; bbox_inches='tight' will
+    # ensure it is included in the saved image.
+    ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), ncol=1, fontsize="small")
+    # Reserve space on the right for the legend
+    fig.subplots_adjust(right=0.78)
     ax.grid(axis="y", linestyle="--", alpha=0.3)
 
     outpath = OUTPUT_DIR / outname
     fig.tight_layout()
-    fig.savefig(outpath, dpi=150)
+    # Ensure legend outside the axes is included in the saved image
+    fig.savefig(outpath, dpi=150, bbox_inches="tight")
     print(f"Wrote {outpath}")
     plt.close(fig)
 
